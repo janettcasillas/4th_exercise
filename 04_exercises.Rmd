@@ -193,7 +193,12 @@ starbucks_with_2018_pop_est <-
 ```
 
   6. **`dplyr` review**: Look through the code above and describe what each line of code does.
-  
+
+The first line reads the data in.
+The second line separates the column into two separate ones, dot and state. Extra (merge) puts everything after the first separator into the second column.
+mutate creates a new variable with the state names in lowercase.
+For the starbucks data, a new data set is being created that will allow people to look at the number of starbucks locations per state along with the population for each state. To do this, the datasets are being joined by the state variable. Finally, with mutate a new variable is being added that will show how many starbucks locations there are per 10,000 people by taking the number of locations and dividing it by the population, and multiplying it times 10,000.
+
   
 
   7. Create a choropleth map that shows the number of Starbucks per 10,000 people on a map of the US. Use a new fill color, add points for all Starbucks in the US (except Hawaii and Alaska), add an informative title for the plot, and include a caption that says who created the plot (you!). Make a conclusion about what you observe.
@@ -406,13 +411,31 @@ These exercises use the datasets `MplsStops` and `MplsDemo` from the `carData` l
 
   14. Use the `MplsStops` dataset to find out how many stops there were for each neighborhood and the proportion of stops that were for a suspicious vehicle or person. Sort the results from most to least number of stops. Save this as a dataset called `mpls_suspicious` and display the table.  
 ```{r}
-carData::MplsStops %>% 
-  
-  
+mpls_all = carData::MplsStops %>% count(neighborhood)
+mpls_suspicious = carData::MplsStops %>%
+  filter(problem == "suspicious") %>%
+  count(neighborhood, problem) %>%
+  inner_join(mpls_all, by = "neighborhood") %>% 
+  mutate(prop_suspicious = n.x/n.y)
+mpls_suspicious
 ```
 
   
   15. Use a `leaflet` map and the `MplsStops` dataset to display each of the stops on a map as a small point. Color the points differently depending on whether they were for suspicious vehicle/person or a traffic stop (the `problem` variable). HINTS: use `addCircleMarkers`, set `stroke = FAlSE`, use `colorFactor()` to create a palette.  
+  
+```{r}
+map_palette = colorFactor(palette = c("#FF0000", "#0000FF"), 
+                          domain = carData::MplsStops$problem)
+leaflet(data = MplsStops) %>% 
+  addProviderTiles(providers$Stamen.Watercolor) %>% 
+  addCircleMarkers(lng = ~long,
+                   lat = ~lat,
+                   stroke = FALSE,
+                   radius = 2,
+                   fillOpacity = 1,
+                   color = ~map_palette(problem))
+```
+
   
   16. Save the folder from moodle called Minneapolis_Neighborhoods into your project/repository folder for this assignment. Make sure the folder is called Minneapolis_Neighborhoods. Use the code below to read in the data and make sure to **delete the `eval=FALSE`**. Although it looks like it only links to the .sph file, you need the entire folder of files to create the `mpls_nbhd` data set. These data contain information about the geometries of the Minneapolis neighborhoods. Using the `mpls_nbhd` dataset as the base file, join the `mpls_suspicious` and `MplsDemo` datasets to it by neighborhood (careful, they are named different things in the different files). Call this new dataset `mpls_all`.
 
@@ -422,9 +445,84 @@ mpls_nbhd <- st_read("C:/Users/janet/OneDrive/Documents/Intro_to_DataScience/exe
 ```
 
   17. Use `leaflet` to create a map from the `mpls_all` data  that colors the neighborhoods by `prop_suspicious`. Display the neighborhood name as you scroll over it. Describe what you observe in the map.
+
+Based on the map, it seems that most suspicious reports occur around the airport in South Minneapolis, while in the north they tend to be more related to traffic. That makes sense, as there are more roads where people can potentially speed or otherwise violate traffic laws or get stopped for that. 
+
+```{r}
+props_and_shapes = inner_join(x = mpls_nbhd, y = mpls_suspicious, by = c("BDNAME" = "neighborhood"))
+
+pal <- colorNumeric("viridis", 
+                     domain = props_and_shapes$prop_suspicious)
+
+leaflet(data = props_and_shapes) %>% 
+  addProviderTiles(providers$Stamen.Terrain) %>% 
+  addPolygons(stroke = FALSE,
+              fillColor = ~pal(props_and_shapes$prop_suspicious),
+              fillOpacity = 0.7,
+              smoothFactor = 0.5,
+              highlight = highlightOptions(weight = 5, 
+                                 color = "black",
+                                 fillOpacity = 0.9,
+                                 bringToFront = FALSE),
+              label = ~props_and_shapes$BDNAME) %>% 
+  addLegend(pal = pal, 
+            values = ~props_and_shapes$prop_suspicious, 
+            opacity = 0.5, 
+            title = NULL,
+            position = "bottomright") 
+
+```
+ 
   
+
   18. Use `leaflet` to create a map of your own choosing. Come up with a question you want to try to answer and use the map to help answer that question. Describe what your map shows. 
   
+  
+```{r}
+mpls_all = carData::MplsStops %>% count(neighborhood)
+mpls_nonwhite_by_nbhd = carData::MplsStops %>%
+  filter(race != "White") %>%
+  count(neighborhood) %>% 
+  inner_join(mpls_all, by = "neighborhood") %>% 
+  mutate(prop_nonwhite = n.x/n.y)
+mpls_nonwhite_by_nbhd
+
+```
+
+  
+```{r}
+props_and_shapes = inner_join(x = mpls_nbhd, y = mpls_nonwhite_by_nbhd, by = c("BDNAME" = "neighborhood"))
+
+pal <- colorNumeric("viridis",
+                     domain = mpls_nonwhite_by_nbhd$prop_nonwhite)
+
+centroids <- as_tibble(st_coordinates(st_centroid(mpls_nbhd)))
+
+leaflet(data = props_and_shapes) %>% 
+  addProviderTiles(providers$Stamen.Terrain) %>% 
+  addPolygons(stroke = FALSE,
+              fillColor = ~pal(mpls_nonwhite_by_nbhd$prop_nonwhite),
+              fillOpacity = 0.7,
+              smoothFactor = 0.5,
+              highlight = highlightOptions(weight = 5, 
+                                 color = "black",
+                                 fillOpacity = 0.9,
+                                 bringToFront = FALSE),
+              label = ~mpls_nonwhite_by_nbhd$neighborhood) %>%
+  
+  addCircles(data = bind_cols(centroids, mpls_suspicious),
+             lng = ~X,
+             lat =  ~Y,
+             popup = ~paste(neighborhood,": ",
+                            round(mpls_suspicious$prop_suspicious, 2),
+                            sep=""),
+             radius = ~mpls_suspicious$prop_suspicious) %>%
+  addLegend(pal = pal,
+            values = ~mpls_nonwhite_by_nbhd$prop_nonwhite,
+            opacity = 0.5,
+            title = NULL,
+            position = "bottomright")
+```
   
 ## GitHub link
 
